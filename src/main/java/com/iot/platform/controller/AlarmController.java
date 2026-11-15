@@ -56,9 +56,10 @@ public class AlarmController {
     }
 
     @Operation(summary = "重新跑一次 AI 诊断",
-            description = "告警产生时会自动诊断一次；这个接口用于人工重跑（比如刚补上 API Key）")
+            description = "告警产生时会自动诊断一次；这个接口用于人工重跑。force=true 可绕过 10 分钟结果缓存")
     @PostMapping("/{id}/diagnose")
-    public Result<DiagnosisResult> diagnose(@PathVariable Long id) {
-        return Result.ok(aiDiagnosisService.diagnoseAndSave(id));
+    public Result<DiagnosisResult> diagnose(@PathVariable Long id,
+                                            @RequestParam(defaultValue = "false") boolean force) {
+        return Result.ok(aiDiagnosisService.diagnoseAndSave(id, force));
     }
 }

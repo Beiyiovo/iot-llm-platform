@@ -1,5 +1,10 @@
 # IoT 设备接入与智能诊断平台
 
+[![build](https://github.com/Beiyiovo/iot-llm-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Beiyiovo/iot-llm-platform/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Java](https://img.shields.io/badge/Java-21-orange)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.5-brightgreen)
+
 一个能跑真数据的物联网后端：设备通过 **MQTT** 上报遥测，平台做**时序入库、规则告警、工单流转**，并在告警产生时调用**大模型做根因诊断**。没有 API Key 也能完整跑通——诊断会自动降级到本地规则引擎。
 
 > 做这个项目的出发点：把"设备 → 网关 → 云端 → 应用"这条链路真正跑一遍，而不是停在 PPT 上。
@@ -100,7 +105,32 @@ mosquitto_pub -h localhost -p 1883 \
 
 ---
 
-## 三、接口
+## 三、界面
+
+**看板**：三台设备实时曲线、告警工单、AI 诊断入口。CO2 与温湿度量级差一个数量级，所以单开右轴，否则另外两条会被压成直线。
+
+![看板](docs/screenshots/dashboard.png)
+
+**AI 诊断**：告警落库后自动触发一次，也可以手动重跑。注意这里是冷库设备——同样是"温度升高"，
+机房是散热不够、冷库是制冷不够，所以知识库按设备类型分支，不会给冷库开出"清理风扇积灰"的药方。
+
+![AI 诊断](docs/screenshots/ai-diagnosis.png)
+
+**接口文档**（Knife4j）：右上角 Authorize 填 `Bearer <token>` 可直接调试。
+
+![接口文档](docs/screenshots/api-docs.png)
+
+<details>
+<summary>其余截图（登录页 / 配电柜曲线）</summary>
+
+![登录](docs/screenshots/login.png)
+![配电柜](docs/screenshots/dashboard-device2.png)
+
+</details>
+
+---
+
+## 四、接口
 
 登录拿 token 后，在 `doc.html` 右上角 Authorize 里填 `Bearer <token>` 即可调试。
 
@@ -112,13 +142,14 @@ mosquitto_pub -h localhost -p 1883 \
 | 遥测 | `GET /api/telemetry`、`/latest`、`/summary` | USER |
 | 告警 | `GET /api/alarms`、`POST /api/alarms/{id}/ack`、`/close`、`/diagnose` | USER |
 | 规则 | `GET /api/alarm-rules`、`POST`、`POST /{id}/toggle`、`DELETE` | **ADMIN** |
+| 自然语言 | `POST /api/ai/ask` | USER |
 | 看板 | `GET /api/dashboard/overview` | USER |
 
 两级 RBAC 的划分依据是"会不会改配置"：看数据和处置告警是值班人员的事（USER），改设备档案和告警规则是管理员的事（ADMIN）。
 
 ---
 
-## 四、几个值得说的设计
+## 五、几个值得说的设计
 
 ### 1. 告警防抖：连续 N 点才开单
 
@@ -154,16 +185,31 @@ mosquitto_pub -h localhost -p 1883 \
 
 用 `AFTER_COMMIT` 而不是普通 `@EventListener`：异步线程去查库时，事务可能还没提交，会报"告警不存在"——这是异步场景最常踩的坑。
 
+### 6. 自然语言查询：把问题降维成参数，而不是让模型直接查库
+
+问「3号楼网关昨天掉线几次」，解析出来的是：
+
+```
+QueryIntent(type=ALARM_LIST, deviceId=1, from=昨天00:00, to=昨天23:59)
+```
+
+执行仍然走受控的 Mapper 查询。
+
+**为什么不让模型直接生成 SQL**：模型要查库就得给它连接，给了连接它就能干任何事；不给连接，它只能编数据。两条路都不对。降维成有限参数，是唯一能同时保住"灵活"和"可控"的做法。
+
+解析层是规则实现（设备名 + 指标别名 + 时间词 + 意图词），离线可用、结果可预期、出错能定位。以后要换成模型解析意图，只要它吐出同样结构的 JSON，执行层一行都不用改。
+
 ---
 
-## 五、目录
+## 六、目录
 
 ```
 src/main/java/com/iot/platform/
-├── ai/            诊断上下文、Mock 与 DashScope 两个实现、门面（选路/超时/降级）
+├── ai/            诊断上下文、Mock 与 DashScope 两个实现、门面（选路/超时/降级/缓存）
+│   └── nl/        自然语言查询：意图结构体 + 规则解析 + 受控执行
 ├── common/        Result、分页、业务异常、全局异常、traceId
 ├── config/        Security、Knife4j、缓存、线程池、演示数据初始化
-├── controller/    认证 / 设备 / 遥测 / 告警 / 规则 / 看板
+├── controller/    认证 / 设备 / 遥测 / 告警 / 规则 / 看板 / 自然语言
 ├── dto/           请求响应对象（record）
 ├── entity/        5 张表的映射
 ├── event/         告警事件 + 异步诊断监听
@@ -171,14 +217,16 @@ src/main/java/com/iot/platform/
 ├── mqtt/          内嵌 Broker、设备认证、PUBLISH 拦截、入库服务
 ├── security/      JWT 签发解析、认证过滤器
 ├── service/       设备 / 遥测 / 告警 / 规则 / 影子 / 健康检查
-└── simulator/     设备模拟器（真连 MQTT，不是塞库）
+└── simulator/     设备模拟器 + 写入压测（都真连 MQTT，不是塞库）
 ```
 
 表结构见 `src/main/resources/db/schema.sql`，随应用启动自动执行（幂等）。
 
 ---
 
-## 六、测试
+## 七、测试与性能
+
+### 单元测试
 
 ```bash
 mvn test
@@ -191,9 +239,33 @@ mvn test
 - **登录**：签发 token、密码错误、账号不存在返回同一句、停用账号
 - **诊断器**：四段结构、趋势识别、未知指标兜底、斜率计算
 
+### 写入压测
+
+```bash
+java -jar target/iot-llm-platform-1.0.0.jar \
+  --iot.loadtest.enabled=true --iot.loadtest.count=3000 --iot.loadtest.threads=6
+```
+
+本机实测（MySQL 与 Broker 同机、JDK 21、QoS 0）：
+
+| 指标 | 数值 |
+|---|---|
+| 消息数 | 3000 |
+| 数据点 | 9000（每条 3 个指标） |
+| 并发连接 | 6 |
+| 发送耗时 | 0.67 s |
+| 发送吞吐 | **约 4450 条/秒** |
+| 异步入库 | 9000 行在 5 秒内全部落库 |
+
+三点必须说明清楚，否则这组数字会骗人：
+
+1. 这是**本机自测**，Broker 和 MySQL 抢同一台机器的 CPU 和磁盘，只说明"链路上没有明显瓶颈"，不能当容量规划依据。
+2. 这是 **QoS 0 的发送吞吐**，不是端到端 ACK 吞吐。遥测场景故意用 QoS 0——丢一个采样点比阻塞整条链路可接受；要严格不丢就改 QoS 1，并接受吞吐下降。
+3. 真正的瓶颈会出现在 MySQL 单表写入和数据膨胀上，所以表设计里留了 `(device_id, ts)`、`(device_id, metric, ts)` 两个联合索引，也写明了未来按天分表或换 TDengine 的路径。
+
 ---
 
-## 七、边界（写清楚比藏着好）
+## 八、边界（写清楚比藏着好）
 
 | 限制 | 原因 | 真要做怎么改 |
 |---|---|---|
@@ -205,6 +277,6 @@ mvn test
 
 ---
 
-## 八、License
+## 九、License
 
 MIT

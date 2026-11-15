@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IoT 设备接入与智能诊断平台</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563eb'/%3E%3Ccircle cx='16' cy='16' r='4' fill='white'/%3E%3Ccircle cx='16' cy='7' r='2' fill='white' opacity='.7'/%3E%3Ccircle cx='16' cy='25' r='2' fill='white' opacity='.7'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 <style>
   :root{
@@ -237,7 +238,7 @@ async function refreshAll(){
     document.getElementById('sTotal').textContent = o.devices.total;
     document.getElementById('sOnline').innerHTML = o.devices.online + '<small>台</small>';
     document.getElementById('sAlarm').innerHTML = (o.alarms.triggered + o.alarms.acked) + '<small>条</small>';
-    document.getElementById('sPoints').textContent = o.telemetryPoints24h;
+    document.getElementById('sPoints').textContent = o.devices.telemetryPoints24h;
   }catch(e){}
   await loadAlarms();
   await drawChart();
@@ -264,12 +265,24 @@ async function drawChart(){
     rows.filter(r=>r.metric===m).forEach(r=>map[r.ts]=r.value);
     return { name:m, type:'line', smooth:true, showSymbol:false, data: times.map(t=>map[t]??null) };
   });
+
+  // CO2 量级比温湿度大一个数量级，共用一个 Y 轴会把另外两条压成直线，
+  // 所以给它单开右轴；其余指标共用左轴。
+  const hasCo2 = metrics.includes('co2');
+  if(hasCo2) series.forEach(s => { s.yAxisIndex = s.name === 'co2' ? 1 : 0; });
+
+  const axisBase = {type:'value', scale:true, axisLine:{show:false}, axisTick:{show:false},
+                    splitLine:{lineStyle:{color:'#f2f3f5'}}, axisLabel:{fontSize:11,color:'#9ca3af'}};
+  const yAxis = hasCo2
+    ? [axisBase, Object.assign({}, axisBase, {position:'right', splitLine:{show:false}})]
+    : axisBase;
+
   state.chart.setOption({
-    grid:{left:52,right:16,top:36,bottom:28},
+    grid:{left:52,right:hasCo2?52:16,top:36,bottom:28},
     tooltip:{trigger:'axis'},
     legend:{top:4,right:8,itemWidth:12,itemHeight:8,textStyle:{fontSize:11,color:'#6b7280'}},
     xAxis:{type:'category',data:times.map(t=>t.slice(11,19)),axisLine:{lineStyle:{color:'#e6e8eb'}},axisLabel:{fontSize:11,color:'#9ca3af'}},
-    yAxis:{type:'value',scale:true,axisLine:{show:false},axisTick:{show:false},splitLine:{lineStyle:{color:'#f2f3f5'}},axisLabel:{fontSize:11,color:'#9ca3af'}},
+    yAxis,
     series
   }, true);
 }
@@ -290,7 +303,7 @@ async function loadAlarms(){
         <td><div class="acts">
           ${a.status==='TRIGGERED'?`<button onclick="ack(${a.id})">认领</button>`:''}
           ${a.status==='ACKED'?`<button onclick="closeA(${a.id})">关闭</button>`:''}
-          <button class="primary" onclick="diagnose(${a.id})">AI 诊断</button>
+          <button class="primary" onclick="diagnose(${a.id}, ${a.deviceId})">AI 诊断</button>
         </div></td>
       </tr>`).join('')}</tbody></table>`;
 }
@@ -298,18 +311,26 @@ async function loadAlarms(){
 async function ack(id){ try{ await api(`/api/alarms/${id}/ack`,{method:'POST'}); await loadAlarms(); }catch(e){ alert(e.message); } }
 async function closeA(id){ try{ await api(`/api/alarms/${id}/close`,{method:'POST'}); await loadAlarms(); }catch(e){ alert(e.message); } }
 
-async function diagnose(id){
+async function diagnose(id, deviceId){
   const modal = document.getElementById('modal');
-  document.getElementById('mTitle').textContent = 'AI 诊断 · 工单 #' + id;
+  const dev = state.devices.find(d => d.id === deviceId);
+  document.getElementById('mTitle').textContent = 'AI 诊断 · ' + (dev ? dev.name + ' · ' : '') + '工单 #' + id;
   document.getElementById('mBody').innerHTML = '<div style="color:#6b7280"><span class="spin"></span> 正在分析该设备的近期数据…</div>';
   document.getElementById('mFoot').textContent = '';
   modal.classList.add('show');
   try{
     const r = await api(`/api/alarms/${id}/diagnose`,{method:'POST'});
     document.getElementById('mBody').innerHTML = renderDiagnosis(r.text);
+    let tag;
+    if(r.fallback){
+      tag = '<span style="color:#d97706">已降级为本地规则</span>';
+    }else if(String(r.model||'').startsWith('dashscope')){
+      tag = '<span style="color:#16a34a">大模型直出</span>';
+    }else{
+      tag = '<span style="color:#6b7280">本地规则引擎</span>';
+    }
     document.getElementById('mFoot').innerHTML =
-      `<span>模型：${esc(r.model)}</span><span>耗时：${r.costMs} ms</span>` +
-      (r.fallback?'<span style="color:#d97706">已降级为本地规则</span>':'<span style="color:#16a34a">大模型直出</span>');
+      `<span>模型：${esc(r.model)}</span><span>耗时：${r.costMs} ms</span>` + tag;
   }catch(e){
     document.getElementById('mBody').textContent = '诊断失败：' + e.message;
   }

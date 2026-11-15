@@ -48,18 +48,43 @@ public class AiDiagnosisService {
     /** Java 21 虚拟线程：IO 密集型调用的理想载体，不用维护线程池大小 */
     private final ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
+    /**
+     * 诊断结果缓存。同一条告警反复点"AI 诊断"不应该反复烧 token，
+     * 10 分钟内直接返回上次结果（force=true 可绕过）。
+     */
+    private final com.github.benmanes.caffeine.cache.Cache<Long, DiagnosisResult> resultCache =
+            com.github.benmanes.caffeine.cache.Caffeine.newBuilder()
+                    .maximumSize(500)
+                    .expireAfterWrite(java.time.Duration.ofMinutes(10))
+                    .build();
+
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     /**
      * 对指定告警做一次诊断并写回数据库。
      */
     public DiagnosisResult diagnoseAndSave(Long alarmId) {
+        return diagnoseAndSave(alarmId, false);
+    }
+
+    /**
+     * @param force true 时忽略缓存，强制重新调用（比如刚补上 API Key、或模型升级后重跑）
+     */
+    public DiagnosisResult diagnoseAndSave(Long alarmId, boolean force) {
+        if (!force) {
+            DiagnosisResult cached = resultCache.getIfPresent(alarmId);
+            if (cached != null) {
+                log.debug("命中诊断缓存 alarm={}", alarmId);
+                return cached;
+            }
+        }
         Alarm alarm = alarmService.getById(alarmId);
         Device device = deviceService.getById(alarm.getDeviceId());
         DiagnosisContext ctx = buildContext(alarm, device);
 
         DiagnosisResult result = callWithFallback(ctx);
         alarmService.saveDiagnosis(alarmId, result.text(), result.model());
+        resultCache.put(alarmId, result);
         return result;
     }
 

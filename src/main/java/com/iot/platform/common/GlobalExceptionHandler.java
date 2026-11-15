@@ -46,6 +46,17 @@ public class GlobalExceptionHandler {
         return Result.fail(401, "未登录或凭证已失效");
     }
 
+    /**
+     * 静态资源不存在。Spring 6.1 会抛 NoResourceFoundException，
+     * 如果不单独处理就会被下面的 Exception 兜底成 500——访问一个不存在的
+     * favicon.ico 却返回"服务器内部错误"，排障时会误导人。
+     */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Result<Void> handleNoResource(org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        return Result.fail(404, "资源不存在: " + e.getResourcePath());
+    }
+
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<Void> handleOther(Exception e) {

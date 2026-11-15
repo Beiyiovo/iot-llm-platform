@@ -32,14 +32,14 @@ public class MockDiagnoser implements Diagnoser {
         boolean sudden = Math.abs(ctx.slope()) > Math.abs(ctx.threshold()) * 0.05;
         boolean high = ctx.value() > ctx.threshold();
 
-        MetricProfile profile = KNOWLEDGE.getOrDefault(ctx.metric().toLowerCase(), GENERIC);
+        MetricProfile profile = profileOf(ctx.metric(), ctx.deviceName());
         List<String> causes = high ? profile.highCauses : profile.lowCauses;
         List<String> actions = high ? profile.highActions : profile.lowActions;
 
         StringBuilder sb = new StringBuilder();
         sb.append("【根因判断】\n");
         sb.append(String.format("%s 当前 %.2f，%s阈值 %.2f 约 %.1f%%，",
-                ctx.metric(), ctx.value(), ctx.operatorText(), ctx.threshold(), ctx.exceedPercent()));
+                cnName(ctx.metric()), ctx.value(), ctx.operatorText(), ctx.threshold(), ctx.exceedPercent()));
         if (sudden) {
             sb.append(rising ? "且近几个采样点仍在快速上升，" : "且仍在快速下降，");
             sb.append("判断为").append(profile.subject).append("正在持续恶化，不是单点毛刺。\n");
@@ -82,6 +82,25 @@ public class MockDiagnoser implements Diagnoser {
             List.of("用标准仪器复核读数", "检查探头接线与接地", "核对设计工况上限，评估是否需要扩容"),
             List.of("传感器掉线或供电不足", "采集线路断路", "真实工况低于设计下限"),
             List.of("确认设备是否在线、供电是否正常", "检查信号线与接插件", "核对设计工况下限"));
+
+    /**
+     * 冷库专用。同样是 temperature 升高，
+     * 机房是"散热不够"，冷库是"制冷不够"——原因库几乎相反。
+     * 套同一个模板会给出让现场工程师笑出来的建议（"检查风扇积灰"）。
+     */
+    private static final MetricProfile COLD_STORAGE = new MetricProfile("制冷系统",
+            List.of("制冷剂不足或微漏，蒸发器换热能力下降",
+                    "压缩机效率下降或频繁启停（与缓慢上行特征吻合）",
+                    "库门未关严或门封老化，外部热负荷渗入",
+                    "化霜周期未结束，蒸发器结霜过厚影响换热"),
+            List.of("查压缩机运行电流与吸排气压力，判断是否缺氟",
+                    "调化霜记录，确认是否卡在化霜阶段",
+                    "检查库门与门封，核对近期开门记录",
+                    "对照库内其他测点，排除单点探头漂移"),
+            List.of("制冷过量，或温控设定值被改动",
+                    "温控器/传感器失效，实际温度并未过低"),
+            List.of("核对温控器设定值与回差",
+                    "用标准温度计交叉验证探头读数"));
 
     private static final Map<String, MetricProfile> KNOWLEDGE = new LinkedHashMap<>();
 
@@ -165,5 +184,33 @@ public class MockDiagnoser implements Diagnoser {
                         "测量三相电流平衡度"),
                 List.of("负载断开或接触器未吸合", "电流互感器故障"),
                 List.of("确认接触器与回路通断", "检查互感器二次侧")));
+    }
+
+    /**
+     * 按设备类型选知识库：冷链设备走制冷语义，其余走通用散热语义。
+     */
+    private MetricProfile profileOf(String metric, String deviceName) {
+        String m = metric == null ? "" : metric.toLowerCase();
+        boolean coldChain = deviceName != null
+                && (deviceName.contains("冷库") || deviceName.contains("冷藏")
+                || deviceName.contains("冷链") || deviceName.contains("冻"));
+        if (coldChain && "temperature".equals(m)) {
+            return COLD_STORAGE;
+        }
+        return KNOWLEDGE.getOrDefault(m, GENERIC);
+    }
+
+    /** 输出里用中文指标名，比裸的 temperature 更像人话 */
+    private String cnName(String metric) {
+        return switch (metric) {
+            case "temperature" -> "温度";
+            case "humidity" -> "湿度";
+            case "co2" -> "CO2 浓度";
+            case "current" -> "电流";
+            case "voltage" -> "电压";
+            case "vibration" -> "振动";
+            case "pressure" -> "压力";
+            default -> metric;
+        };
     }
 }
