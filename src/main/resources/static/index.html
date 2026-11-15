@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IoT 设备接入与智能诊断平台</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --line:#e6e8eb; --text:#1a1d21; --muted:#6b7280;
+    --blue:#2563eb; --blue-weak:#eff4ff; --red:#dc2626; --red-weak:#fef2f2;
+    --green:#16a34a; --amber:#d97706; --radius:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
+  button{font-family:inherit;font-size:13px;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:#fff;padding:6px 12px;color:var(--text);transition:.15s}
+  button:hover{border-color:#c9ced6;background:#fafbfc}
+  button.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  button.primary:hover{background:#1d4ed8}
+  button.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+  button.ghost:hover{background:#eef0f3;color:var(--text)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  input{font-family:inherit;font-size:14px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;width:100%;outline:none}
+  input:focus{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-weak)}
+
+  #login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:50}
+  .login-box{width:340px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:32px}
+  .login-box h1{font-size:17px;font-weight:500;margin-bottom:4px}
+  .login-box p{font-size:13px;color:var(--muted);margin-bottom:24px}
+  .login-box .field{margin-bottom:14px}
+  .login-box .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+  .login-box button{width:100%;margin-top:8px;padding:10px}
+  .err{color:var(--red);font-size:12px;margin-top:10px;min-height:18px}
+
+  header{height:56px;background:var(--card);border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 20px;gap:16px;position:sticky;top:0;z-index:10}
+  header h1{font-size:15px;font-weight:500}
+  header .dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px}
+  header .spacer{flex:1}
+  header .who{font-size:13px;color:var(--muted)}
+
+  main{max-width:1280px;margin:0 auto;padding:20px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+  .stat .k{font-size:12px;color:var(--muted)}
+  .stat .v{font-size:24px;font-weight:500;margin-top:2px;font-variant-numeric:tabular-nums}
+  .stat .v small{font-size:13px;color:var(--muted);font-weight:400;margin-left:4px}
+
+  .grid{display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .card-h{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .card-h h2{font-size:13px;font-weight:500}
+  .card-h .spacer{flex:1}
+  .card-b{padding:12px 16px}
+
+  .dev{padding:10px 12px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:.12s}
+  .dev:hover{background:#f4f6f9}
+  .dev.on{background:var(--blue-weak);box-shadow:inset 0 0 0 1px #dbe6ff}
+  .dev .nm{flex:1;min-width:0}
+  .dev .nm b{display:block;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dev .nm span{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace}
+  .pill{font-size:11px;padding:1px 7px;border-radius:99px;white-space:nowrap}
+  .pill.on{background:#e8f7ee;color:var(--green)}
+  .pill.off{background:#f1f2f4;color:var(--muted)}
+  .pill.d{background:var(--red-weak);color:var(--red)}
+  .pill.TRIGGERED{background:var(--red-weak);color:var(--red)}
+  .pill.ACKED{background:#fff7e6;color:var(--amber)}
+  .pill.CLOSED{background:#f1f2f4;color:var(--muted)}
+
+  #chart{height:300px;width:100%}
+  .empty{padding:40px 16px;text-align:center;color:var(--muted);font-size:13px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-weight:400;color:var(--muted);font-size:12px;padding:8px 12px;border-bottom:1px solid var(--line)}
+  td{padding:10px 12px;border-bottom:1px solid #f2f3f5;vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  td.mono{font-family:ui-monospace,monospace;font-size:12px}
+  .acts{display:flex;gap:6px;justify-content:flex-end}
+  .acts button{padding:3px 9px;font-size:12px}
+
+  #modal{position:fixed;inset:0;background:rgba(15,18,22,.45);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+  #modal.show{display:flex}
+  .modal-box{background:#fff;border-radius:16px;width:min(680px,100%);max-height:80vh;overflow:auto}
+  .modal-h{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;position:sticky;top:0;background:#fff}
+  .modal-h h3{font-size:14px;font-weight:500;flex:1}
+  .modal-b{padding:20px;font-size:13px;line-height:1.75;white-space:pre-wrap}
+  .modal-b h4{font-size:13px;font-weight:500;color:var(--blue);margin:14px 0 4px}
+  .modal-b h4:first-child{margin-top:0}
+  .modal-f{padding:12px 20px;border-top:1px solid var(--line);color:var(--muted);font-size:12px;display:flex;gap:12px}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:sp .7s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  @media(max-width:860px){.stats{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="login-box">
+    <h1>IoT 设备接入与智能诊断平台</h1>
+    <p>MQTT 遥测 · 规则告警 · AI 诊断</p>
+    <div class="field"><label>用户名</label><input id="u" value="admin" autocomplete="username"></div>
+    <div class="field"><label>密码</label><input id="p" type="password" value="123456" autocomplete="current-password"></div>
+    <button class="primary" id="loginBtn">登录</button>
+    <div class="err" id="loginErr"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <header>
+    <h1><span class="dot"></span>IoT 设备接入与智能诊断平台</h1>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="ghost" id="logout">退出</button>
+  </header>
+
+  <main>
+    <div class="stats">
+      <div class="stat"><div class="k">设备总数</div><div class="v" id="sTotal">-</div></div>
+      <div class="stat"><div class="k">在线设备</div><div class="v" id="sOnline">-</div></div>
+      <div class="stat"><div class="k">待处理告警</div><div class="v" id="sAlarm">-</div></div>
+      <div class="stat"><div class="k">24h 数据点</div><div class="v" id="sPoints">-</div></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-h"><h2>设备</h2><div class="spacer"></div><span class="who" id="devCount"></span></div>
+        <div class="card-b" id="devList" style="padding:8px"></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+        <div class="card">
+          <div class="card-h"><h2 id="chartTitle">实时曲线</h2><div class="spacer"></div><span class="who" id="chartHint">每 3 秒刷新</span></div>
+          <div class="card-b" style="padding:8px 8px 4px"><div id="chart"></div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>告警工单</h2><div class="spacer"></div>
+            <button class="ghost" id="refreshAlarms">刷新</button></div>
+          <div id="alarmBody"><div class="empty">加载中…</div></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="modal">
+  <div class="modal-box">
+    <div class="modal-h"><h3 id="mTitle">AI 诊断</h3><button class="ghost" id="mClose">关闭</button></div>
+    <div class="modal-b" id="mBody"></div>
+    <div class="modal-f" id="mFoot"></div>
+  </div>
+</div>
+
+<script>
+const API = '';
+const state = { token: localStorage.getItem('iot_token'), user: null, devices: [], current: null, chart: null, timer: null };
+
+function toast(msg){ const e=document.getElementById('loginErr'); }
+
+async function api(path, opts={}){
+  const headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  if(state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  const res = await fetch(API + path, Object.assign({}, opts, {headers}));
+  const data = await res.json().catch(()=>({code:res.status,message:'响应解析失败'}));
+  if(data.code === 401){ logout(); throw new Error('登录已过期'); }
+  if(data.code !== 0) throw new Error(data.message || '请求失败');
+  return data.data;
+}
+
+document.getElementById('loginBtn').onclick = async () => {
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('loginErr');
+  btn.disabled = true; btn.textContent='登录中…'; err.textContent='';
+  try{
+    const r = await api('/api/auth/login', {method:'POST', body:JSON.stringify({
+      username: document.getElementById('u').value.trim(),
+      password: document.getElementById('p').value
+    })});
+    state.token = r.token; state.user = r;
+    localStorage.setItem('iot_token', r.token);
+    enterApp();
+  }catch(e){ err.textContent = e.message; }
+  finally{ btn.disabled=false; btn.textContent='登录'; }
+};
+
+document.getElementById('p').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('loginBtn').click(); });
+document.getElementById('logout').onclick = logout;
+
+function logout(){
+  state.token=null; state.user=null;
+  localStorage.removeItem('iot_token');
+  if(state.timer) clearInterval(state.timer);
+  document.getElementById('app').style.display='none';
+  document.getElementById('login').style.display='flex';
+}
+
+async function enterApp(){
+  document.getElementById('login').style.display='none';
+  document.getElementById('app').style.display='block';
+  try{
+    const me = await api('/api/auth/me');
+    state.user = me;
+    document.getElementById('who').textContent = `${me.nickname||me.username} · ${me.role}`;
+  }catch(e){ return; }
+  await loadDevices();
+  await refreshAll();
+  if(state.timer) clearInterval(state.timer);
+  state.timer = setInterval(refreshAll, 3000);
+}
+
+async function loadDevices(){
+  const page = await api('/api/devices?page=1&size=50');
+  state.devices = page.records;
+  const box = document.getElementById('devList');
+  document.getElementById('devCount').textContent = page.total + ' 台';
+  if(!state.devices.length){ box.innerHTML = '<div class="empty">还没有设备</div>'; return; }
+  box.innerHTML = state.devices.map(d=>`
+    <div class="dev ${state.current&&state.current.id===d.id?'on':''}" data-id="${d.id}">
+      <span class="pill ${d.status==='ONLINE'?'on':(d.status==='DISABLED'?'d':'off')}">${d.status==='ONLINE'?'在线':(d.status==='DISABLED'?'停用':'离线')}</span>
+      <div class="nm"><b>${esc(d.name)}</b><span>${esc(d.deviceKey)}</span></div>
+    </div>`).join('');
+  box.querySelectorAll('.dev').forEach(el=>{
+    el.onclick = () => {
+      state.current = state.devices.find(d=>String(d.id)===el.dataset.id);
+      loadDevices(); drawChart();
+      document.getElementById('chartTitle').textContent = '实时曲线 · ' + state.current.name;
+    };
+  });
+  if(!state.current) {
+    state.current = state.devices[0];
+    document.getElementById('chartTitle').textContent = '实时曲线 · ' + state.current.name;
+  }
+}
+
+async function refreshAll(){
+  try{
+    const o = await api('/api/dashboard/overview');
+    document.getElementById('sTotal').textContent = o.devices.total;
+    document.getElementById('sOnline').innerHTML = o.devices.online + '<small>台</small>';
+    document.getElementById('sAlarm').innerHTML = (o.alarms.triggered + o.alarms.acked) + '<small>条</small>';
+    document.getElementById('sPoints').textContent = o.telemetryPoints24h;
+  }catch(e){}
+  await loadAlarms();
+  await drawChart();
+}
+
+async function drawChart(){
+  if(!state.current) return;
+  let rows=[];
+  try{ rows = await api(`/api/telemetry?deviceId=${state.current.id}&limit=300`); }catch(e){ return; }
+  const el = document.getElementById('chart');
+  if(typeof echarts === 'undefined'){
+    el.innerHTML = '<div class="empty">图表库未加载（离线环境），数据仍可通过 /api/telemetry 查看</div>';
+    return;
+  }
+  if(!state.chart) state.chart = echarts.init(el);
+  if(!rows.length){
+    el.innerHTML = '<div class="empty">该设备暂无数据，启动模拟器或让真机上报后自动出现</div>';
+    state.chart.clear(); return;
+  }
+  const metrics = [...new Set(rows.map(r=>r.metric))];
+  const times = [...new Set(rows.map(r=>r.ts))].sort();
+  const series = metrics.map(m=>{
+    const map = {};
+    rows.filter(r=>r.metric===m).forEach(r=>map[r.ts]=r.value);
+    return { name:m, type:'line', smooth:true, showSymbol:false, data: times.map(t=>map[t]??null) };
+  });
+  state.chart.setOption({
+    grid:{left:52,right:16,top:36,bottom:28},
+    tooltip:{trigger:'axis'},
+    legend:{top:4,right:8,itemWidth:12,itemHeight:8,textStyle:{fontSize:11,color:'#6b7280'}},
+    xAxis:{type:'category',data:times.map(t=>t.slice(11,19)),axisLine:{lineStyle:{color:'#e6e8eb'}},axisLabel:{fontSize:11,color:'#9ca3af'}},
+    yAxis:{type:'value',scale:true,axisLine:{show:false},axisTick:{show:false},splitLine:{lineStyle:{color:'#f2f3f5'}},axisLabel:{fontSize:11,color:'#9ca3af'}},
+    series
+  }, true);
+}
+
+async function loadAlarms(){
+  let page;
+  try{ page = await api('/api/alarms?page=1&size=8'); }catch(e){ return; }
+  const rows = page.records||[];
+  const body = document.getElementById('alarmBody');
+  if(!rows.length){ body.innerHTML = '<div class="empty">暂无告警。持续超阈值 N 个采样点后会自动开单。</div>'; return; }
+  body.innerHTML = `<table><thead><tr>
+      <th style="width:64px">级别</th><th>内容</th><th style="width:88px">状态</th><th style="width:200px"></th>
+    </tr></thead><tbody>${rows.map(a=>`
+      <tr>
+        <td><span class="pill ${a.level==='CRITICAL'?'TRIGGERED':(a.level==='WARN'?'ACKED':'off')}">${a.level}</span></td>
+        <td>${esc(a.message||'')}<div style="color:#9ca3af;font-size:11px" class="mono">${(a.triggeredAt||'').replace('T',' ').slice(0,19)}</div></td>
+        <td><span class="pill ${a.status}">${a.status}</span></td>
+        <td><div class="acts">
+          ${a.status==='TRIGGERED'?`<button onclick="ack(${a.id})">认领</button>`:''}
+          ${a.status==='ACKED'?`<button onclick="closeA(${a.id})">关闭</button>`:''}
+          <button class="primary" onclick="diagnose(${a.id})">AI 诊断</button>
+        </div></td>
+      </tr>`).join('')}</tbody></table>`;
+}
+
+async function ack(id){ try{ await api(`/api/alarms/${id}/ack`,{method:'POST'}); await loadAlarms(); }catch(e){ alert(e.message); } }
+async function closeA(id){ try{ await api(`/api/alarms/${id}/close`,{method:'POST'}); await loadAlarms(); }catch(e){ alert(e.message); } }
+
+async function diagnose(id){
+  const modal = document.getElementById('modal');
+  document.getElementById('mTitle').textContent = 'AI 诊断 · 工单 #' + id;
+  document.getElementById('mBody').innerHTML = '<div style="color:#6b7280"><span class="spin"></span> 正在分析该设备的近期数据…</div>';
+  document.getElementById('mFoot').textContent = '';
+  modal.classList.add('show');
+  try{
+    const r = await api(`/api/alarms/${id}/diagnose`,{method:'POST'});
+    document.getElementById('mBody').innerHTML = renderDiagnosis(r.text);
+    document.getElementById('mFoot').innerHTML =
+      `<span>模型：${esc(r.model)}</span><span>耗时：${r.costMs} ms</span>` +
+      (r.fallback?'<span style="color:#d97706">已降级为本地规则</span>':'<span style="color:#16a34a">大模型直出</span>');
+  }catch(e){
+    document.getElementById('mBody').textContent = '诊断失败：' + e.message;
+  }
+}
+
+function renderDiagnosis(text){
+  if(!text) return '<div class="empty">无内容</div>';
+  return esc(text).replace(/【(.+?)】/g,'<h4>【$1】</h4>');
+}
+
+document.getElementById('mClose').onclick = ()=> document.getElementById('modal').classList.remove('show');
+document.getElementById('modal').onclick = e=>{ if(e.target.id==='modal') e.currentTarget.classList.remove('show'); };
+document.getElementById('refreshAlarms').onclick = loadAlarms;
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+if(state.token){ enterApp(); }
+</script>
+</body>
+</html>

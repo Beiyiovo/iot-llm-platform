@@ -1,0 +1,87 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: iot-llm-platform
+  datasource:
+    url: jdbc:mysql://localhost:3306/iot_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+      continue-on-error: false
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# ---------- 平台自有配置 ----------
+iot:
+  mqtt:
+    enabled: true
+    host: 0.0.0.0
+    port: 1883
+    username: null
+    password: null
+    allow-anonymous: false
+    topic-prefix: iot
+  jwt:
+    secret: ${JWT_SECRET:iot-llm-platform-demo-secret-key-please-change-in-production-2026}
+    expire-minutes: 720
+    header: Authorization
+    prefix: "Bearer "
+  alarm:
+    # 告警去抖窗口内最多保留多少个设备的计数器，超出按 LRU 淘汰
+    counter-cache-size: 10000
+  ai:
+    enabled: ${AI_ENABLED:true}
+    provider: ${AI_PROVIDER:mock}
+    model: qwen-plus
+    api-key: ${DASHSCOPE_API_KEY:}
+    timeout-seconds: 12
+    # 送给模型的遥测样本条数
+    sample-size: 30
+
+logging:
+  level:
+    root: INFO
+    com.iot.platform: DEBUG
+    io.moquette: WARN
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{traceId:-}] %logger{36} - %msg%n"
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+    enable-footer: false
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
