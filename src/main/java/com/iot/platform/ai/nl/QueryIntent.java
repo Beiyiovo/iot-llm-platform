@@ -32,8 +32,10 @@ public record QueryIntent(
         if (from == null || to == null) {
             return "全部时间";
         }
+        // 去掉纳秒，否则回答里会出现 12:51:43.715717500 这种没法读的时间
+        java.time.format.DateTimeFormatter hm = java.time.format.DateTimeFormatter.ofPattern("HH:mm");
         return from.toLocalDate().equals(to.toLocalDate())
-                ? from.toLocalDate() + " " + from.toLocalTime() + "~" + to.toLocalTime()
+                ? from.toLocalDate() + " " + from.toLocalTime().format(hm) + "~" + to.toLocalTime().format(hm)
                 : from.toLocalDate() + " ~ " + to.toLocalDate();
     }
 }
